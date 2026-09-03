@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: renewai_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-renewai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-renewaipass}
+      POSTGRES_DB: ${POSTGRES_DB:-renewai_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U renewai -d renewai_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. FastAPI Backend & Agentic AI Orchestrator
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: renewai_backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://renewai:renewaipass@db:5432/renewai_db
+      - SECRET_KEY=${SECRET_KEY:-ibm-bob-hackathon-super-secret-key-2026-gujarat-renewables}
+      - WATSONX_APIKEY=${WATSONX_APIKEY:-}
+      - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID:-}
+      - WATSONX_URL=${WATSONX_URL:-https://us-south.ml.cloud.ibm.com}
+      - WATSONX_MODEL_ID=${WATSONX_MODEL_ID:-ibm/granite-3-8b-instruct}
+      - CORS_ORIGINS=["*"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/system/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # 3. React Frontend & Nginx Gateway
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: renewai_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    driver: local
